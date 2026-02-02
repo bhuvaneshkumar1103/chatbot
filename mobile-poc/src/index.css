@@ -1,0 +1,22 @@
+@import "tailwindcss";
+
+/* index.css */
+body {
+  margin: 0;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  min-height: 100vh;
+  background-color: #2c2c2c; /* Dark background to make the phone pop */
+}
+
+#root {
+  width: 375px;
+  height: 812px; /* Standard iPhone 13/14/15 height */
+  background: #C1B59F;
+  overflow: hidden;
+  position: relative;
+  border: 12px solid #1a1a1a;
+  border-radius: 40px;
+  box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
+}
