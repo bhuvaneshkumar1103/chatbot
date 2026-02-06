@@ -5,10 +5,13 @@ import DeviceValidation from './screens/DeviceValidation';
 import HealthCheck from './screens/HealthCheck';
 import UploadRC from './screens/UploadRC';
 import UploadPhotos from './screens/UploadPhotos';
+import ChatAssistant from './components/ChatAssisstant';
+
 export default function App() {
   return (
     <Router>
-      <div className="w-full h-full">
+      <div className="relative w-full h-full overflow-hidden bg-[#C1B59F]">
+        <ChatAssistant />
         <Routes>
           {/* All these components can now use useNavigate() */}
           <Route path="/" element={<Home />} />
