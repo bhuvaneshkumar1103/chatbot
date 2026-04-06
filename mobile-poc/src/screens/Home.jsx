@@ -6,6 +6,7 @@ export default function Home() {
   const navigate = useNavigate();
   const [showSuccess, setShowSuccess] = useState(false);
   const [stepsStatus, setStepsStatus] = useState({ 1: false, 2: false, 3: false, 4: false });
+  const [deviceImei, setDeviceImei] = useState('861850061689812');
 
   useEffect(() => {
     setStepsStatus({
@@ -14,6 +15,10 @@ export default function Home() {
       3: localStorage.getItem('step3_completed') === 'true',
       4: localStorage.getItem('step4_completed') === 'true',
     });
+    const savedDeviceId = localStorage.getItem('device_id');
+    if (savedDeviceId) {
+      setDeviceImei(savedDeviceId);
+    }
   }, []);
 
   const allDone = stepsStatus[1] && stepsStatus[2] && stepsStatus[3] && stepsStatus[4];
@@ -45,7 +50,7 @@ export default function Home() {
         
         {stepsStatus[1] && (
           <div className="space-y-2 animate-in fade-in zoom-in duration-300">
-            <InfoRow label="IMEI" value="861850061689812" />
+            <InfoRow label="IMEI" value={deviceImei} />
             <InfoRow label="MANF" value="Basheer" />
             <InfoRow label="MAN PH" value="9655543732" icon={<Phone size={10}/>} />
           </div>

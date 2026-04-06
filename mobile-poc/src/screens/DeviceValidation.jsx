@@ -8,8 +8,14 @@ export default function DeviceValidation() {
   const [imei, setImei] = useState("");
 
   const handleSave = () => {
-    // In a real app, you'd update a global state or database here
+    const deviceIdValue = imei.trim() || '861850061689812';
+    const existingFitter = localStorage.getItem('fitter_id') || `FITTER${Math.floor(Math.random() * 9000) + 1000}`;
+
     localStorage.setItem('step1_completed', 'true');
+    localStorage.setItem('device_id', deviceIdValue);
+    localStorage.setItem('fitter_id', existingFitter);
+    localStorage.setItem('open_chat', 'true');
+
     navigate('/');
   };
 
@@ -86,7 +92,7 @@ export default function DeviceValidation() {
             onClick={handleSave}
             className="w-full bg-[#435B71] text-white py-4 rounded-full font-bold uppercase tracking-widest text-xs shadow-lg shadow-black/20"
           >
-            Save
+            Save & Open Chat
           </button>
         </div>
       )}

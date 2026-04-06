@@ -21,7 +21,7 @@ SARVAM_API_KEY = "sk_hoe9j8zf_mX9VF8pB4ih6JB0ZkTwQ3wmg" # <--- PASTE KEY HERE
 
 # Initialize SDK Client
 client = SarvamAI(api_subscription_key=SARVAM_API_KEY)
-genai.configure(api_key="AIzaSyCy6t-dN51h889d4X3KGGBb3NJr52CoRT8")
+genai.configure(api_key="AIzaSyAQMHeV7B5wsGeaOm_oxQcFJXP5ScB6Qgg")
 
 # --- SYSTEM PROMPT ---
 SYSTEM_PROMPT = """
@@ -220,3 +220,29 @@ async def chat_endpoint(file: UploadFile = File(...), history: str = Form("")):
         "audio_base64": audio_base64,
         "updated_history": new_history
     })
+
+@app.post("/action/gps")
+async def gps_action(fitter_id: str = Form(...), device_id: str = Form(...)):
+    """
+    Handle GPS action request from the mobile app.
+    Placeholder endpoint that logs the request and returns success.
+    """
+    try:
+        print(f"GPS Action requested - Fitter: {fitter_id}, Device: {device_id}")
+        
+        # TODO: Add actual GPS action logic here
+        # This could involve:
+        # - Triggering GPS data collection
+        # - Starting location tracking
+        # - Performing GPS diagnostics
+        # - Sending commands to hardware
+        
+        return JSONResponse({
+            "success": True,
+            "message": f"GPS action initiated for device {device_id}",
+            "fitter_id": fitter_id,
+            "device_id": device_id
+        })
+    except Exception as e:
+        print(f"❌ GPS Action Error: {e}")
+        return JSONResponse({"error": f"GPS Action Failed: {str(e)}"}, status_code=500)
