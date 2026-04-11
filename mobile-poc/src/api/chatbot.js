@@ -1,74 +1,105 @@
-const BASE_URL = import.meta.env.VITE_API_BASE_URL || "http://127.0.0.1:8000/api/v1/chatbot";
+import SSEClient from '../utils/sseClient';
 
-async function submitAudioChat({ audioBlob, fitterId, deviceId }) {
+const BASE_URL = import.meta.env.VITE_API_BASE_URL || "http://localhost:8000/api/v1";
+
+async function submitAudioChat({ audioBlob, fitterId, deviceId, onStatus, onResult, onError, onDone }) {
   const formData = new FormData();
   if (audioBlob) formData.append("audio", audioBlob, "audio.wav");
   formData.append("fitter_id", fitterId);
   formData.append("device_id", deviceId);
 
-  const response = await fetch(`${BASE_URL}/`, {
+  const sseClient = new SSEClient();
+  
+  await sseClient.connect(`${BASE_URL}/chatbot/`, {
     method: "POST",
-    mode: "cors",
     body: formData,
+    onStatus: (data) => {
+      if (onStatus) onStatus(data);
+    },
+    onResult: (data) => {
+      if (onResult) onResult(data);
+    },
+    onError: (data) => {
+      if (onError) onError(data);
+    },
+    onDone: () => {
+      if (onDone) onDone();
+    },
   });
 
-  return response.json();
+  return sseClient;
 }
 
-async function continueChat({ id, audioBlob, action, answerText }) {
+async function continueChat({ id, audioBlob, onStatus, onResult, onError, onDone }) {
   const formData = new FormData();
   if (audioBlob) formData.append("audio", audioBlob, "audio.wav");
-  if (action) formData.append("action", action);
-  if (answerText) formData.append("answer_text", answerText);
 
-  const response = await fetch(`${BASE_URL}/${encodeURIComponent(id)}`, {
+  const sseClient = new SSEClient();
+  
+  await sseClient.connect(`${BASE_URL}/chatbot/${encodeURIComponent(id)}`, {
     method: "PUT",
-    mode: "cors",
     body: formData,
+    onStatus: (data) => {
+      if (onStatus) onStatus(data);
+    },
+    onResult: (data) => {
+      if (onResult) onResult(data);
+    },
+    onError: (data) => {
+      if (onError) onError(data);
+    },
+    onDone: () => {
+      if (onDone) onDone();
+    },
   });
 
-  return response.json();
+  return sseClient;
 }
 
-async function getChatSession(id) {
-  const response = await fetch(`${BASE_URL}/${encodeURIComponent(id)}`, {
-    method: "GET",
-    mode: "cors",
-  });
-
-  return response.json();
-}
-
-async function getTaskResult(taskId) {
-  const response = await fetch(`${BASE_URL}/result/${encodeURIComponent(taskId)}`, {
-    method: "GET",
-    mode: "cors",
-  });
-
-  return response.json();
-}
-
-async function startGpsAction({ fitterId, deviceId }) {
-  const formData = new FormData();
-  formData.append("fitter_id", fitterId);
-  formData.append("device_id", deviceId);
-
+async function getMediaFile(url) {
   try {
-    const response = await fetch(`${BASE_URL}/action/gps`, {
-      method: "POST",
+    const response = await fetch(`${BASE_URL}${url}`, {
+      method: "GET",
       mode: "cors",
-      body: formData,
     });
 
     if (!response.ok) {
       throw new Error(`HTTP error! status: ${response.status}`);
     }
 
-    return await response.json();
+    const blob = await response.blob();
+    return URL.createObjectURL(blob);
   } catch (error) {
-    console.error('GPS API Error:', error);
+    console.error('Media fetch error:', error);
     throw error;
   }
 }
 
-export { submitAudioChat, continueChat, getChatSession, getTaskResult, startGpsAction };
+async function startGpsAction({ fitterId, deviceId, onStatus, onResult, onError, onDone }) {
+  const formData = new FormData();
+  formData.append("fitter_id", fitterId);
+  formData.append("device_id", deviceId);
+
+  const sseClient = new SSEClient();
+  
+  await sseClient.connect(`${BASE_URL}/chatbot/action/gps`, {
+    method: "POST",
+    body: formData,
+    onStatus: (data) => {
+      if (onStatus) onStatus(data);
+    },
+    onResult: (data) => {
+      if (onResult) onResult(data);
+    },
+    onError: (data) => {
+      if (onError) onError(data);
+    },
+    onDone: () => {
+      if (onDone) onDone();
+    },
+  });
+
+  return sseClient;
+}
+
+export { submitAudioChat, continueChat, getMediaFile, startGpsAction };

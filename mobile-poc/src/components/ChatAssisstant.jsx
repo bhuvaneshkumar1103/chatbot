@@ -1,6 +1,6 @@
 ﻿import { useState, useEffect, useRef } from 'react';
 import { MessageCircle, X, Mic, Bot, Loader2, Play, Pause, MapPin } from 'lucide-react';
-import { submitAudioChat, continueChat, getChatSession, getTaskResult, startGpsAction } from '../api/chatbot';
+import { submitAudioChat, continueChat, getMediaFile, startGpsAction } from '../api/chatbot';
 
 export default function ChatAssistant() {
   const [isOpen, setIsOpen] = useState(false);
@@ -10,14 +10,11 @@ export default function ChatAssistant() {
   const [fitterId, setFitterId] = useState('');
   const [deviceId, setDeviceId] = useState('');
   const [sessionId, setSessionId] = useState(null);
-  const [taskId, setTaskId] = useState(null);
-  const [isPolling, setIsPolling] = useState(false);
+  const [statusMessage, setStatusMessage] = useState('');
+  const [sseClient, setSseClient] = useState(null);
   const [isEnabled, setIsEnabled] = useState(false);
   const [gpsClicked, setGpsClicked] = useState(false);
-  const [lastQuestion, setLastQuestion] = useState(null);
-  const [lastAction, setLastAction] = useState(null);
-  const [lastResponseId, setLastResponseId] = useState(null);
-  const [answeringQuestion, setAnsweringQuestion] = useState(false);
+  const [currentChatId, setCurrentChatId] = useState(null);
 
   const mediaRecorder = useRef(null);
   const audioChunks = useRef([]);
@@ -56,7 +53,15 @@ export default function ChatAssistant() {
     if (scrollRef.current) {
       scrollRef.current.scrollTo({ top: scrollRef.current.scrollHeight, behavior: 'smooth' });
     }
-  }, [messages, isLoading, isPolling]);
+  }, [messages, isLoading, statusMessage]);
+
+  useEffect(() => {
+    return () => {
+      if (sseClient) {
+        sseClient.disconnect();
+      }
+    };
+  }, [sseClient]);
 
   const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -69,105 +74,50 @@ export default function ChatAssistant() {
     setMessages((prev) => [...prev, newMessage]);
   };
 
-  const appendResultMessages = (resultData) => {
+  const appendResultMessages = async (resultData) => {
     if (!resultData) return;
-    const messagesToAdd = [];
     
-    // Extract ID from response data first - available for all responses
-    if (resultData.data?.id) {
-      setLastResponseId(resultData.data.id);
-    }
-    
-    // Navigate through nested response structure
-    // Could be: resultData.result.result or resultData.result or resultData
-    let result = resultData;
-    if (resultData.data.result) {
-      result = resultData.data.result;
-      if (result.result) {
-        result = result.result;
-      }
-    }
-    
-    // Handle error messages
-    if (resultData.error) {
-      addMessage({ type: 'text', sender: 'assistant', text: `Error: ${resultData.error}` });
+    if (!resultData.success) {
+      addMessage({ type: 'text', sender: 'assistant', text: `Error: ${resultData.error || 'Unknown error'}` });
       return;
     }
 
-    // Store the action for later use in answer
-      if (result.action) {
-        setLastAction(result.action);
-      }
+    const data = resultData.data;
+    if (!data) return;
 
-    // Handle question type responses
-    if (result.type === 'question') {
-      setLastQuestion(result);
-    
-      if (result.message) {
-        messagesToAdd.push({ type: 'text', sender: 'assistant', text: result.message, isQuestion: true });
-      }
-    } else {
-      // Regular response handling
-      if (result.message) {
-        messagesToAdd.push({ type: 'text', sender: 'assistant', text: result.message });
-      }
-      if (result.sms_result) {
-        messagesToAdd.push({ type: 'text', sender: 'assistant', text: result.sms_result });
-      }
-      if (result.session_id) {
-        messagesToAdd.push({ type: 'text', sender: 'assistant', text: `Session ID: ${result.session_id}` });
-      }
+    if (data.id) {
+      setCurrentChatId(data.id);
     }
-    
-    // Handle media (images, videos, audio)
+
+    const result = data.result;
+    if (!result) return;
+
+    if (result.message) {
+      addMessage({ type: 'text', sender: 'assistant', text: result.message });
+    }
+
     if (result.media && Array.isArray(result.media)) {
-      result.media.forEach((item) => {
-        if (item.data && item.mime_type && item.encoding === 'base64') {
-          const dataUrl = `data:${item.mime_type};base64,${item.data}`;
-          if (item.mime_type.startsWith('audio/')) {
-            messagesToAdd.push({ type: 'audio', sender: 'assistant', audioUrl: dataUrl });
-          } else if (item.mime_type.startsWith('image/')) {
-            messagesToAdd.push({ type: 'image', sender: 'assistant', imageUrl: dataUrl, filename: item.filename });
-          } else if (item.mime_type.startsWith('video/')) {
-            messagesToAdd.push({ type: 'video', sender: 'assistant', videoUrl: dataUrl, filename: item.filename });
+      for (const item of result.media) {
+        if (item.url && item.mime_type) {
+          try {
+            const mediaUrl = await getMediaFile(item.url);
+            
+            if (item.mime_type.startsWith('audio/')) {
+              addMessage({ type: 'audio', sender: 'assistant', audioUrl: mediaUrl });
+            } else if (item.mime_type.startsWith('image/')) {
+              addMessage({ type: 'image', sender: 'assistant', imageUrl: mediaUrl, filename: item.filename });
+            } else if (item.mime_type.startsWith('video/')) {
+              addMessage({ type: 'video', sender: 'assistant', videoUrl: mediaUrl, filename: item.filename });
+            }
+          } catch (error) {
+            console.error('Failed to load media:', error);
+            addMessage({ type: 'text', sender: 'assistant', text: `Failed to load media: ${item.filename}` });
           }
         }
-      });
+      }
     }
-    
-    // If nothing was extracted, show the raw data as fallback
-    if (messagesToAdd.length === 0) {
-      addMessage({ type: 'text', sender: 'assistant', text: JSON.stringify(resultData, null, 2) });
-      return;
-    }
-    
-    messagesToAdd.forEach((msg) => addMessage(msg));
   };
 
-  const pollTaskResult = async (taskIdToPoll) => {
-    if (!taskIdToPoll) return;
-    setIsPolling(true);
-    try {
-      for (let attempt = 0; attempt < 8; attempt += 1) {
-        const response = await getTaskResult(taskIdToPoll);
-        if (!response) break;
-        if (response.success) {
-          const payload = response.data;
-          const status = payload?.status || payload?.result?.status;
-          if (status && status !== 'pending') {
-            appendResultMessages(payload);
-            return payload;
-          }
-        }
-        await sleep(2500);
-      }
-    } catch (error) {
-      console.error('Polling error:', error);
-      addMessage({ type: 'text', sender: 'assistant', text: 'Failed to poll task result.' });
-    } finally {
-      setIsPolling(false);
-    }
-  };
 
   const createNewSession = async (audioBlob) => {
     if (!fitterId || !deviceId) {
@@ -176,77 +126,73 @@ export default function ChatAssistant() {
     }
 
     setIsLoading(true);
+    setStatusMessage('');
+    
     try {
-      const response = await submitAudioChat({ audioBlob, fitterId, deviceId });
-      if (response.success) {
-        const id = response.data?.id;
-        // const pollUrl = response.data?.poll_url;
-        setSessionId(id);
-        // if (pollUrl) {
-        //   const taskIdValue = pollUrl.split('/').pop();
-        //   setTaskId(taskIdValue);
-        //   await pollTaskResult(taskIdValue);
-        // }
-        appendResultMessages(response);
-        return response;
-      }
-      addMessage({ type: 'text', sender: 'assistant', text: response.error || 'Failed to submit audio chat.' });
+      const client = await submitAudioChat({
+        audioBlob,
+        fitterId,
+        deviceId,
+        onStatus: (data) => {
+          setStatusMessage(data.message || `${data.stage}...`);
+        },
+        onResult: async (data) => {
+          if (data.success && data.data?.id) {
+            setCurrentChatId(data.data.id);
+          }
+          await appendResultMessages(data);
+        },
+        onError: (data) => {
+          addMessage({ type: 'text', sender: 'assistant', text: `Error: ${data.error || 'Unknown error'}` });
+        },
+        onDone: () => {
+          setIsLoading(false);
+          setStatusMessage('');
+        },
+      });
+      
+      setSseClient(client);
     } catch (error) {
       console.error('Submit audio chat failed:', error);
-      addMessage({ type: 'text', sender: 'assistant', text: `Network error submitting audio chat: ${error.message}` });
-    } finally {
+      addMessage({ type: 'text', sender: 'assistant', text: `Network error: ${error.message}` });
       setIsLoading(false);
+      setStatusMessage('');
     }
   };
 
-  const sendContinueChat = async (audioBlob, answer = null) => {
-    // If we're answering a question, we must have a sessionId
-    if (answer && !sessionId) {
-      alert('Error: No active session for answering.');
-      return;
-    }
-    
-    // If we don't have session or audio, create new session (only for initial audio)
-    if (!sessionId && audioBlob && !lastResponseId) {
+  const sendContinueChat = async (audioBlob) => {
+    if (!currentChatId) {
       return createNewSession(audioBlob);
     }
 
-    
-    // If we have no session and no audio, that's an error
-    // if (!sessionId) {
-    //   alert('No active session. Please record audio to start.');
-    //   return;
-    // }
-
     setIsLoading(true);
+    setStatusMessage('');
+    
     try {
-      // Determine if we need to send answer_text
-      // For default_question_asked action, we send answer_text (yes/no)
-      // For other actions, answer_text is null
-      const params = { id: lastResponseId, audioBlob };
+      const client = await continueChat({
+        id: currentChatId,
+        audioBlob,
+        onStatus: (data) => {
+          setStatusMessage(data.message || `${data.stage}...`);
+        },
+        onResult: async (data) => {
+          await appendResultMessages(data);
+        },
+        onError: (data) => {
+          addMessage({ type: 'text', sender: 'assistant', text: `Error: ${data.error || 'Unknown error'}` });
+        },
+        onDone: () => {
+          setIsLoading(false);
+          setStatusMessage('');
+        },
+      });
       
-      if (lastAction) {
-        params.action = lastAction;
-        // Only send answer_text for question type actions with answer
-        if (lastQuestion && answer) {
-          params.answerText = answer;
-        }
-      }
-      
-      const response = await continueChat(params);
-      if (response.success) {
-        appendResultMessages(response);
-        // setLastQuestion(null);
-        // setLastAction(null);
-        return response;
-      }
-      addMessage({ type: 'text', sender: 'assistant', text: response.error || 'Failed to continue chat.' });
+      setSseClient(client);
     } catch (error) {
       console.error('Continue chat failed:', error);
-      addMessage({ type: 'text', sender: 'assistant', text: `Network error continuing chat: ${error.message}` });
-    } finally {
+      addMessage({ type: 'text', sender: 'assistant', text: `Network error: ${error.message}` });
       setIsLoading(false);
-      setAnsweringQuestion(false);
+      setStatusMessage('');
     }
   };
 
@@ -288,27 +234,9 @@ export default function ChatAssistant() {
     }
   };
 
-  const handlePollSession = async () => {
-    if (!sessionId) {
-      alert('No session ID found. Start a chat first.');
-      return;
-    }
 
-    setIsLoading(true);
-    try {
-      const response = await getChatSession(sessionId);
-      if (response.success) {
-        appendResultMessages(response.data);
-      } else {
-        addMessage({ type: 'text', sender: 'assistant', text: response.error || 'Failed to poll chat session.' });
-      }
-    } catch (error) {
-      console.error('Poll session failed:', error);
-      addMessage({ type: 'text', sender: 'assistant', text: 'Network error polling session.' });
-    } finally {
-      setIsLoading(false);
-    }
-  };
+
+
 
   const handleStartGps = async () => {
     if (!fitterId || !deviceId) {
@@ -318,111 +246,47 @@ export default function ChatAssistant() {
 
     setIsLoading(true);
     setGpsClicked(true);
+    setStatusMessage('');
+    
     try {
-      const response = await startGpsAction({ fitterId, deviceId });
-      if (response.success) {
-        appendResultMessages(response);
-      } else {
-        addMessage({ type: 'text', sender: 'assistant', text: response.error || 'Failed to start GPS action.' });
-      }
+      const client = await startGpsAction({
+        fitterId,
+        deviceId,
+        onStatus: (data) => {
+          setStatusMessage(data.message || `${data.stage}...`);
+        },
+        onResult: async (data) => {
+          if (data.success && data.data?.id) {
+            setCurrentChatId(data.data.id);
+          }
+          await appendResultMessages(data);
+        },
+        onError: (data) => {
+          addMessage({ type: 'text', sender: 'assistant', text: `Error: ${data.error || 'Unknown error'}` });
+        },
+        onDone: () => {
+          setIsLoading(false);
+          setStatusMessage('');
+        },
+      });
+      
+      setSseClient(client);
     } catch (error) {
       console.error('GPS action failed:', error);
-      addMessage({ type: 'text', sender: 'assistant', text: 'Network error starting GPS action.' });
-    } finally {
+      addMessage({ type: 'text', sender: 'assistant', text: `Network error: ${error.message}` });
       setIsLoading(false);
-    }
-  };
-
-  const sendQuestionAnswer = async (id, answerValue, audioBlob) => {
-    setIsLoading(true);
-    try {
-      const params = { id, audioBlob };
-      
-      if (lastAction) {
-        params.action = lastAction;
-      }
-      
-      // Send answer_text for question type responses
-      if (answerValue) {
-        params.answerText = answerValue;
-      }
-      
-      const response = await continueChat(params);
-      if (response.success) {
-        appendResultMessages(response);
-        // setLastQuestion(response.data?.result?.action);
-        // setLastAction(response.data?.result?.action || null); // Update lastAction if it changed with the answer
-        setLastResponseId(response.data?.id); // Update lastResponseId in case it changed with the answer
-        return response;
-      }
-      addMessage({ type: 'text', sender: 'assistant', text: response.error || 'Failed to answer question.' });
-    } catch (error) {
-      console.error('Question answer failed:', error);
-      addMessage({ type: 'text', sender: 'assistant', text: `Network error answering question: ${error.message}` });
-    } finally {
-      setIsLoading(false);
-      setAnsweringQuestion(false);
-    }
-  };
-
-  const handleQuestionAnswer = async (answerValue) => {
-    const responseId = lastResponseId || sessionId;
-    if (!responseId) {
-      alert('No ID available to answer question.');
-      return;
-    }
-    
-    setAnsweringQuestion(true);
-    if (answerValue === 'no') {
-      // Auto-start recording for 'no' answer
-      audioChunks.current = [];
-      try {
-        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-        mediaRecorder.current = new MediaRecorder(stream);
-        mediaRecorder.current.ondataavailable = (event) => {
-          if (event.data && event.data.size > 0) {
-            audioChunks.current.push(event.data);
-          }
-        };
-        mediaRecorder.current.onstop = () => {
-          const audioBlob = new Blob(audioChunks.current, { type: 'audio/wav' });
-          if (audioBlob.size > 0) {
-            const audioUrl = URL.createObjectURL(audioBlob);
-            addMessage({ type: 'audio', sender: 'user', audioUrl });
-            // Send with answerValue for question type
-            sendQuestionAnswer(responseId, answerValue, audioBlob);
-          }
-          stream.getTracks().forEach((track) => track.stop());
-        };
-        mediaRecorder.current.start(1000);
-        setIsRecording(true);
-        // Auto-stop after 8 seconds
-        setTimeout(() => {
-          if (mediaRecorder.current && isRecording) {
-            mediaRecorder.current.stop();
-            setIsRecording(false);
-          }
-        }, 8000);
-      } catch (err) {
-        console.error('Mic Error:', err);
-        alert('Microphone capture failed.');
-        setAnsweringQuestion(false);
-      }
-    } else if (answerValue === 'yes') {
-      // For 'yes', send without audio
-      await sendQuestionAnswer(responseId, answerValue, null);
+      setStatusMessage('');
     }
   };
 
   const resetChat = () => {
     setMessages([]);
     setSessionId(null);
-    setTaskId(null);
+    setCurrentChatId(null);
     setGpsClicked(false);
-    setLastQuestion(null);
-    setLastAction(null);
-    setLastResponseId(null);
-    setAnsweringQuestion(false);
+    if (sseClient) {
+      sseClient.disconnect();
+    }
   };
 
   return (
@@ -470,29 +334,7 @@ export default function ChatAssistant() {
             {messages.map((message) => (
               <div key={message.id} className={`flex ${message.sender === 'user' ? 'justify-end' : 'justify-start'}`}>
                 <div className={`max-w-[85%] rounded-2xl px-4 py-3 ${message.sender === 'user' ? 'bg-[#2D4356] text-white' : 'bg-white border border-gray-200 text-gray-800'}`}>
-                  {message.type === 'text' && (
-                    <>
-                      <p className="text-sm">{message.text}</p>
-                      {message.isQuestion && lastQuestion && (
-                        <div className="flex gap-2 mt-4">
-                          <button
-                            onClick={() => handleQuestionAnswer('yes')}
-                            disabled={isLoading || answeringQuestion}
-                            className="flex-1 bg-green-500 hover:bg-green-600 disabled:bg-gray-400 text-white font-bold py-2 rounded-lg text-xs transition-all"
-                          >
-                            Yes
-                          </button>
-                          <button
-                            onClick={() => handleQuestionAnswer('no')}
-                            disabled={isLoading || answeringQuestion}
-                            className="flex-1 bg-red-500 hover:bg-red-600 disabled:bg-gray-400 text-white font-bold py-2 rounded-lg text-xs transition-all"
-                          >
-                            No
-                          </button>
-                        </div>
-                      )}
-                    </>
-                  )}
+                  {message.type === 'text' && <p className="text-sm">{message.text}</p>}
                   {message.type === 'audio' && <AudioPlayer url={message.audioUrl} isUser={message.sender === 'user'} autoPlay={message.autoPlay || false} />}
                   {message.type === 'image' && <img src={message.imageUrl} alt={message.filename} className="max-w-full rounded-lg" />}
                   {message.type === 'video' && (
@@ -506,7 +348,14 @@ export default function ChatAssistant() {
                 </div>
               </div>
             ))}
-            {(isLoading || isPolling) && <Loader2 className="animate-spin text-gray-300 mx-auto" size={18} />}
+            {isLoading && (
+              <div className="flex flex-col items-center gap-2">
+                <Loader2 className="animate-spin text-gray-300" size={18} />
+                {statusMessage && (
+                  <p className="text-xs text-gray-500 text-center">{statusMessage}</p>
+                )}
+              </div>
+            )}
           </div>
 
           <div className="p-4 bg-white border-t border-gray-100 pb-10">
@@ -524,8 +373,8 @@ export default function ChatAssistant() {
                 </button>
                 <button
                   onClick={handleStartGps}
-                  disabled={isRecording || !!sessionId || !deviceId || !fitterId || isLoading || gpsClicked}
-                  className={`col-span-1 rounded-2xl py-4 text-sm font-bold uppercase tracking-widest transition-all bg-white text-[#2D4356] border border-gray-200 ${isRecording || !!sessionId || !deviceId || !fitterId || isLoading || gpsClicked ? 'opacity-50 cursor-not-allowed' : ''}`}
+                  disabled={isRecording || !!currentChatId || !deviceId || !fitterId || isLoading || gpsClicked}
+                  className={`col-span-1 rounded-2xl py-4 text-sm font-bold uppercase tracking-widest transition-all bg-white text-[#2D4356] border border-gray-200 ${isRecording || !!currentChatId || !deviceId || !fitterId || isLoading || gpsClicked ? 'opacity-50 cursor-not-allowed' : ''}`}
                 >
                   <span className="inline-flex items-center justify-center gap-2">
                     <MapPin size={16} />
