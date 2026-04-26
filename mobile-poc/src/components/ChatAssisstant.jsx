@@ -1,5 +1,5 @@
 ﻿import { useState, useEffect, useRef } from 'react';
-import { MessageCircle, X, Mic, Bot, Loader2, Play, Pause, MapPin } from 'lucide-react';
+import { MessageCircle, X, Mic, Bot, Play, Pause, MapPin } from 'lucide-react';
 import { submitAudioChat, continueChat, getMediaFile, startGpsAction } from '../api/chatbot';
 
 export default function ChatAssistant() {
@@ -11,6 +11,7 @@ export default function ChatAssistant() {
   const [deviceId, setDeviceId] = useState('');
   const [sessionId, setSessionId] = useState(null);
   const [statusMessage, setStatusMessage] = useState('');
+  const [progress, setProgress] = useState(0);
   const [sseClient, setSseClient] = useState(null);
   const [isEnabled, setIsEnabled] = useState(false);
   const [gpsClicked, setGpsClicked] = useState(false);
@@ -64,6 +65,17 @@ export default function ChatAssistant() {
   }, [sseClient]);
 
   const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+  const getProgressFromStage = (stage) => {
+    const stageMap = {
+      'processing': 20,
+      'transcribing': 40,
+      'analyzing': 60,
+      'generating': 80,
+      'complete': 100,
+    };
+    return stageMap[stage?.toLowerCase()] || 10;
+  };
 
   const addMessage = (message) => {
     const newMessage = { id: Date.now() + Math.random(), ...message };
@@ -127,6 +139,7 @@ export default function ChatAssistant() {
 
     setIsLoading(true);
     setStatusMessage('');
+    setProgress(0);
     
     try {
       const client = await submitAudioChat({
@@ -135,8 +148,10 @@ export default function ChatAssistant() {
         deviceId,
         onStatus: (data) => {
           setStatusMessage(data.message || `${data.stage}...`);
+          setProgress(getProgressFromStage(data.stage));
         },
         onResult: async (data) => {
+          setProgress(100);
           if (data.success && data.data?.id) {
             setCurrentChatId(data.data.id);
           }
@@ -148,6 +163,7 @@ export default function ChatAssistant() {
         onDone: () => {
           setIsLoading(false);
           setStatusMessage('');
+          setProgress(0);
         },
       });
       
@@ -167,6 +183,7 @@ export default function ChatAssistant() {
 
     setIsLoading(true);
     setStatusMessage('');
+    setProgress(0);
     
     try {
       const client = await continueChat({
@@ -174,8 +191,10 @@ export default function ChatAssistant() {
         audioBlob,
         onStatus: (data) => {
           setStatusMessage(data.message || `${data.stage}...`);
+          setProgress(getProgressFromStage(data.stage));
         },
         onResult: async (data) => {
+          setProgress(100);
           await appendResultMessages(data);
         },
         onError: (data) => {
@@ -184,6 +203,7 @@ export default function ChatAssistant() {
         onDone: () => {
           setIsLoading(false);
           setStatusMessage('');
+          setProgress(0);
         },
       });
       
@@ -247,6 +267,7 @@ export default function ChatAssistant() {
     setIsLoading(true);
     setGpsClicked(true);
     setStatusMessage('');
+    setProgress(0);
     
     try {
       const client = await startGpsAction({
@@ -254,8 +275,10 @@ export default function ChatAssistant() {
         deviceId,
         onStatus: (data) => {
           setStatusMessage(data.message || `${data.stage}...`);
+          setProgress(getProgressFromStage(data.stage));
         },
         onResult: async (data) => {
+          setProgress(100);
           if (data.success && data.data?.id) {
             setCurrentChatId(data.data.id);
           }
@@ -267,6 +290,7 @@ export default function ChatAssistant() {
         onDone: () => {
           setIsLoading(false);
           setStatusMessage('');
+          setProgress(0);
         },
       });
       
@@ -349,8 +373,13 @@ export default function ChatAssistant() {
               </div>
             ))}
             {isLoading && (
-              <div className="flex flex-col items-center gap-2">
-                <Loader2 className="animate-spin text-gray-300" size={18} />
+              <div className="flex flex-col items-center gap-3 px-4 py-3">
+                <div className="w-full max-w-[200px] h-2 bg-gray-200 rounded-full overflow-hidden">
+                  <div 
+                    className="h-full bg-[#2D4356] rounded-full transition-all duration-300 ease-out"
+                    style={{ width: `${progress}%` }}
+                  />
+                </div>
                 {statusMessage && (
                   <p className="text-xs text-gray-500 text-center">{statusMessage}</p>
                 )}
