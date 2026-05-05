@@ -2,11 +2,12 @@ import SSEClient from '../utils/sseClient';
 
 const BASE_URL = import.meta.env.VITE_API_BASE_URL || "http://localhost:8000/api/v1";
 
-async function submitAudioChat({ audioBlob, fitterId, deviceId, onStatus, onResult, onError, onDone }) {
+async function submitAudioChat({ audioBlob, fitterId, deviceId, iccid, onStatus, onResult, onError, onDone }) {
   const formData = new FormData();
   if (audioBlob) formData.append("audio", audioBlob, "audio.wav");
   formData.append("fitter_id", fitterId);
   formData.append("device_id", deviceId);
+  formData.append("iccid", iccid);
 
   const sseClient = new SSEClient();
   
@@ -75,10 +76,11 @@ async function getMediaFile(url) {
   }
 }
 
-async function startGpsAction({ fitterId, deviceId, onStatus, onResult, onError, onDone }) {
+async function startGpsAction({ fitterId, deviceId, iccid, onStatus, onResult, onError, onDone }) {
   const formData = new FormData();
   formData.append("fitter_id", fitterId);
   formData.append("device_id", deviceId);
+  formData.append("iccid", iccid);
 
   const sseClient = new SSEClient();
   

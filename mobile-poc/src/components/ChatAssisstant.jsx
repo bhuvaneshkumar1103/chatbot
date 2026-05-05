@@ -77,6 +77,23 @@ export default function ChatAssistant() {
     return stageMap[stage?.toLowerCase()] || 10;
   };
 
+  const inferMimeType = (path) => {
+    const ext = path.split('.').pop()?.toLowerCase();
+    const map = {
+      mp3: 'audio/mpeg',
+      wav: 'audio/wav',
+      ogg: 'audio/ogg',
+      webm: 'audio/webm',
+      mp4: 'video/mp4',
+      jpg: 'image/jpeg',
+      jpeg: 'image/jpeg',
+      png: 'image/png',
+      gif: 'image/gif',
+      webp: 'image/webp',
+    };
+    return map[ext] || null;
+  };
+
   const addMessage = (message) => {
     const newMessage = { id: Date.now() + Math.random(), ...message };
     // Auto-play first assistant audio message
@@ -110,20 +127,25 @@ export default function ChatAssistant() {
 
     if (result.media && Array.isArray(result.media)) {
       for (const item of result.media) {
-        if (item.url && item.mime_type) {
+        const isString = typeof item === 'string';
+        const url = isString ? item : item.url;
+        const mimeType = isString ? inferMimeType(item) : item.mime_type;
+        const filename = isString ? item.split('/').pop() : item.filename;
+
+        if (url && mimeType) {
           try {
-            const mediaUrl = await getMediaFile(item.url);
+            const mediaUrl = await getMediaFile(url);
             
-            if (item.mime_type.startsWith('audio/')) {
+            if (mimeType.startsWith('audio/')) {
               addMessage({ type: 'audio', sender: 'assistant', audioUrl: mediaUrl });
-            } else if (item.mime_type.startsWith('image/')) {
-              addMessage({ type: 'image', sender: 'assistant', imageUrl: mediaUrl, filename: item.filename });
-            } else if (item.mime_type.startsWith('video/')) {
-              addMessage({ type: 'video', sender: 'assistant', videoUrl: mediaUrl, filename: item.filename });
+            } else if (mimeType.startsWith('image/')) {
+              addMessage({ type: 'image', sender: 'assistant', imageUrl: mediaUrl, filename });
+            } else if (mimeType.startsWith('video/')) {
+              addMessage({ type: 'video', sender: 'assistant', videoUrl: mediaUrl, filename });
             }
           } catch (error) {
             console.error('Failed to load media:', error);
-            addMessage({ type: 'text', sender: 'assistant', text: `Failed to load media: ${item.filename}` });
+            addMessage({ type: 'text', sender: 'assistant', text: `Failed to load media: ${filename}` });
           }
         }
       }
@@ -146,6 +168,7 @@ export default function ChatAssistant() {
         audioBlob,
         fitterId,
         deviceId,
+        iccid: '8991840042633832132F',
         onStatus: (data) => {
           setStatusMessage(data.message || `${data.stage}...`);
           setProgress(getProgressFromStage(data.stage));
@@ -273,6 +296,7 @@ export default function ChatAssistant() {
       const client = await startGpsAction({
         fitterId,
         deviceId,
+        iccid: '8991840042633832132F',
         onStatus: (data) => {
           setStatusMessage(data.message || `${data.stage}...`);
           setProgress(getProgressFromStage(data.stage));
