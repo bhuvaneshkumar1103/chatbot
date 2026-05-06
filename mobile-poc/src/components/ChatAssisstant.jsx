@@ -9,6 +9,7 @@ export default function ChatAssistant() {
   const [isLoading, setIsLoading] = useState(false);
   const [fitterId, setFitterId] = useState('');
   const [deviceId, setDeviceId] = useState('');
+  const [iccid, setIccid] = useState('');
   const [sessionId, setSessionId] = useState(null);
   const [statusMessage, setStatusMessage] = useState('');
   const [progress, setProgress] = useState(0);
@@ -168,7 +169,7 @@ export default function ChatAssistant() {
         audioBlob,
         fitterId,
         deviceId,
-        iccid: '8991840042633832132F',
+        iccid,
         onStatus: (data) => {
           setStatusMessage(data.message || `${data.stage}...`);
           setProgress(getProgressFromStage(data.stage));
@@ -296,7 +297,7 @@ export default function ChatAssistant() {
       const client = await startGpsAction({
         fitterId,
         deviceId,
-        iccid: '8991840042633832132F',
+        iccid,
         onStatus: (data) => {
           setStatusMessage(data.message || `${data.stage}...`);
           setProgress(getProgressFromStage(data.stage));
@@ -376,6 +377,13 @@ export default function ChatAssistant() {
                 className="w-full rounded-xl border border-gray-200 bg-gray-50 px-3 py-2 text-xs text-gray-600"
               />
             </div>
+            <input
+              value={iccid}
+              onChange={(e) => setIccid(e.target.value)}
+              placeholder="Enter ICCID"
+              disabled={!!currentChatId}
+              className={`w-full rounded-xl border border-gray-200 px-3 py-2 text-xs text-gray-600 ${currentChatId ? 'bg-gray-50' : 'bg-white'}`}
+            />
           </div>
 
           <div className="flex-1 overflow-y-auto p-4 space-y-4" ref={scrollRef}>
